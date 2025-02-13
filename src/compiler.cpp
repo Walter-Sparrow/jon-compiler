@@ -740,7 +740,26 @@ int read_methods(FILE *file, method_info *methods, u2 count, cp_info *pool) {
   return 0;
 }
 
-int parse_file(char *path) {
+typedef struct class_file {
+  u4 magic;
+  u2 minor_version;
+  u2 major_version;
+  u2 constant_pool_count;
+  cp_info *constant_pool;
+  u2 access_flags;
+  u2 this_class;
+  u2 super_class;
+  u2 interfaces_count;
+  u2 *interfaces;
+  u2 fields_count;
+  field_info *fields;
+  u2 methods_count;
+  method_info *methods;
+  u2 attributes_count;
+  attribute_info *attributes;
+} class_file;
+
+int parse_file(char *path, class_file *c_file) {
   FILE *file = fopen(path, "rb");
   if (!file) {
     perror("could not open the file");
@@ -833,6 +852,23 @@ int parse_file(char *path) {
     return -1;
   }
 
+  c_file->magic = magic;
+  c_file->minor_version = minor_version;
+  c_file->major_version = major_version;
+  c_file->constant_pool_count = constant_pool_count;
+  c_file->constant_pool = constant_pool;
+  c_file->access_flags = access_flags;
+  c_file->this_class = this_class;
+  c_file->super_class = super_class;
+  c_file->interfaces_count = interfaces_count;
+  c_file->interfaces = interfaces;
+  c_file->fields_count = fields_count;
+  c_file->fields = fields;
+  c_file->methods_count = methods_count;
+  c_file->methods = methods;
+  c_file->attributes_count = attributes_count;
+  c_file->attributes = attributes;
+
   return 0;
 }
 
@@ -847,7 +883,9 @@ int main(int argc, char *argv[]) {
     char path[FILENAME_MAX];
     snprintf(path, sizeof(path), "%s\\%s", buffer, argv[i]);
     printf("path: %s\n", path);
-    parse_file(path);
+
+    class_file c_file;
+    parse_file(path, &c_file);
   }
 
   free(buffer);
