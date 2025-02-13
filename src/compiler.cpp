@@ -410,6 +410,11 @@ int read_code_attribute(FILE *file, code_attribute *info, cp_info *pool) {
 
   info->code = (u1 *)malloc(info->code_length * sizeof(u1));
   fread(info->code, info->code_length, 1, file);
+  printf("      code: ");
+  for (int i = 0; i < info->code_length; i++) {
+    printf("%x ", info->code[i]);
+  }
+  printf("\n");
 
   READ_U2(file, info->exception_table_length);
   printf("      exception table length: %d\n", info->exception_table_length);
@@ -489,8 +494,6 @@ int read_attributes(FILE *file, attribute_info *attributes, u2 count,
     printf("  attribute_index: %d\n", i);
 
     READ_U2(file, current_info->attribute_name_index);
-    printf("    attribute name index: %d\n",
-           current_info->attribute_name_index);
     utf8_info *utf8 =
         (utf8_info *)pool[current_info->attribute_name_index - 1].info;
     printf("    attribute name: %s\n", utf8->bytes);
@@ -718,12 +721,13 @@ int read_methods(FILE *file, method_info *methods, u2 count, cp_info *pool) {
     printf("\n");
 
     READ_U2(file, method->name_index);
-    printf("  name index: %d\n", method->name_index);
-    utf8_info *utf8 = (utf8_info *)pool[method->name_index - 1].info;
-    printf("  name: %s\n", utf8->bytes);
+    utf8_info *name = (utf8_info *)pool[method->name_index - 1].info;
+    printf("  name: %s\n", name->bytes);
 
     READ_U2(file, method->descriptor_index);
-    printf("  descriptor index: %d\n", method->descriptor_index);
+    utf8_info *descriptor =
+        (utf8_info *)pool[method->descriptor_index - 1].info;
+    printf("  descriptor: %s\n", descriptor->bytes);
 
     READ_U2(file, method->attributes_count);
     printf("  attributes count: %d\n", method->attributes_count);
