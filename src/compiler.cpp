@@ -3,10 +3,12 @@
 #include <cstdio>
 #include <cstdint>
 #include <cmath>
+#include "stack.h"
 
 typedef uint8_t u1;
 typedef uint16_t u2;
 typedef uint32_t u4;
+typedef uint64_t u8;
 typedef int32_t i4;
 
 #define READ_U1(file, name) fread(&name, sizeof(name), 1, file);
@@ -881,9 +883,10 @@ typedef enum jon_value_type : u1 {
   jon_value_type_boolean = 0x1,
   jon_value_type_int = 0x2,
   jon_value_type_float = 0x3,
-  jon_value_type_string = 0x4,
-  jon_value_type_array = 0x5,
-  jon_value_type_object = 0x6,
+  jon_value_type_double = 0x4,
+  jon_value_type_string = 0x5,
+  jon_value_type_array = 0x6,
+  jon_value_type_object = 0x7,
 } jon_value_type;
 
 typedef struct jon_value_pair jon_value_pair;
@@ -923,6 +926,8 @@ typedef enum opcode : u1 {
   op_dconst_1 = 0xf,
   op_sipush = 0x11,
   op_ldc = 0x12,
+  op_ldc_w = 0x13,
+  op_ldc2_w = 0x14,
   op_return = 0xb1,
   op_putstatic = 0xb3,
   op_invokestatic = 0xb8,
@@ -935,7 +940,216 @@ static const char *double_descriptor = "D";
 static const char *string_descriptor = "Ljava/lang/String;";
 static const char *list_descriptor = "Ljava/util/List;";
 
-void fill_jon_object(jon_value_pair *object, class_file *c_file) {
+void fill_jon_value_type(jon_value *value, utf8_info *descriptor) {
+  if (strcmp((char *)descriptor->bytes, boolean_descriptor) == 0) {
+    value->type = jon_value_type_boolean;
+  } else if (strcmp((char *)descriptor->bytes, int_descriptor) == 0) {
+    value->type = jon_value_type_int;
+  } else if (strcmp((char *)descriptor->bytes, float_descriptor) == 0) {
+    value->type = jon_value_type_float;
+  } else if (strcmp((char *)descriptor->bytes, double_descriptor) == 0) {
+    value->type = jon_value_type_float;
+  } else if (strcmp((char *)descriptor->bytes, string_descriptor) == 0) {
+    value->type = jon_value_type_string;
+  } else if (strcmp((char *)descriptor->bytes, list_descriptor) == 0) {
+    value->type = jon_value_type_array;
+  } else {
+    value->type = jon_value_type_object;
+  }
+}
+
+method_info *find_clinit(class_file *c_file) {
+  for (int i = 0; i < c_file->methods_count; i++) {
+    method_info *method = &c_file->methods[i];
+    utf8_info *name =
+        (utf8_info *)c_file->constant_pool[method->name_index - 1].info;
+    if (strcmp((char *)name->bytes, "<clinit>") == 0) {
+      return method;
+    }
+  }
+
+  return NULL;
+}
+
+code_attribute *find_code_attribute(method_info *method, cp_info *pool) {
+  for (int i = 0; i < method->attributes_count; i++) {
+    attribute_info *attribute = &method->attributes[i];
+    utf8_info *name =
+        (utf8_info *)pool[attribute->attribute_name_index - 1].info;
+    if (strcmp((char *)name->bytes, "Code") == 0) {
+      return (code_attribute *)attribute->info;
+    }
+  }
+
+  return NULL;
+}
+
+int jon_object_set_value(jon_value_pair *object, char *key, jon_value value) {
+  size_t object_size = sizeof(object) / sizeof(jon_value_pair);
+  for (int i = 0; i < object_size; i++) {
+    if (strcmp(object[i].key, key) == 0) {
+      object[i].value = value;
+      return 0;
+    }
+  }
+
+  return -1;
+}
+
+float convert_float(u4 bytes) {
+  int bits = bytes;
+
+  if (bits == 0x7f800000) return INFINITY;
+  if (bits == 0xff800000) return -INFINITY;
+  if ((bits >= 0x7f800001 && bits <= 0x7fffffff) ||
+      (bits >= 0xff800001 && bits <= 0xffffffff))
+    return NAN;
+
+  int s = ((bits >> 31) == 0) ? 1 : -1;
+  int e = ((bits >> 23) & 0xff);
+  int m = (e == 0) ? (bits & 0x7fffff) << 1 : (bits & 0x7fffff) | 0x800000;
+
+  return s * m * pow(2, e - 150);
+}
+
+double convert_double(u4 high_bytes, u4 low_bytes) {
+  u8 bits = ((u8)high_bytes << 32) | low_bytes;
+
+  if (bits == 0x7ff0000000000000) return INFINITY;
+  if (bits == 0xfff0000000000000) return -INFINITY;
+  if ((bits >= 0x7ff0000000000001 && bits <= 0x7fffffffffffffff) ||
+      (bits >= 0xfff0000000000001 && bits <= 0xffffffffffffffff))
+    return NAN;
+
+  int s = ((bits >> 63) == 0) ? 1 : -1;
+  int e = (int)((bits >> 52) & 0x7ff);
+  long m = (e == 0) ? (bits & 0xfffffffffffff) << 1
+                    : (bits & 0xfffffffffffff) | 0x10000000000000;
+
+  return s * m * pow(2, e - 1075);
+}
+
+utf8_info *find_in_ref_info(cp_info *pool, ref_info *ref) {
+  name_and_type_info *name_and_type =
+      (name_and_type_info *)pool[ref->name_and_type_index - 1].info;
+
+  return (utf8_info *)pool[name_and_type->name_index - 1].info;
+}
+
+int interpret_code(code_attribute *code_attr, jon_value_pair *object,
+                   cp_info *pool) {
+  stack s;
+  stack_init(&s, code_attr->max_stack);
+  for (int i = 0; i < code_attr->code_length; i++) {
+    u1 opcode = code_attr->code[i];
+    switch (opcode) {
+      case op_iconst_m1: {
+        stack_push(&s, -1);
+      } break;
+      case op_iconst_0: {
+        stack_push(&s, 0);
+      } break;
+      case op_iconst_1: {
+        stack_push(&s, 1);
+      } break;
+      case op_iconst_2: {
+        stack_push(&s, 2);
+      } break;
+      case op_iconst_3: {
+        stack_push(&s, 3);
+      } break;
+      case op_iconst_4: {
+        stack_push(&s, 4);
+      } break;
+      case op_iconst_5: {
+        stack_push(&s, 5);
+      } break;
+      case op_fconst_0: {
+        stack_push(&s, 0.0f);
+      } break;
+      case op_fconst_1: {
+        stack_push(&s, 1.0f);
+      } break;
+      case op_fconst_2: {
+        stack_push(&s, 2.0f);
+      } break;
+      case op_dconst_0: {
+        stack_push(&s, (double)0.0);
+      } break;
+      case op_dconst_1: {
+        stack_push(&s, (double)1.0);
+      } break;
+      case op_sipush: {
+        u2 value = (code_attr->code[++i] << 8) | code_attr->code[++i];
+        stack_push(&s, value);
+      } break;
+      case op_ldc: {
+        u1 index = code_attr->code[++i];
+        cp_info *pool_entry = &pool[index - 1];
+        switch (pool_entry->tag) {
+          case CONSTANT_Integer: {
+            integer_info *i_info = (integer_info *)pool_entry->info;
+            stack_push(&s, (int)i_info->bytes);
+          } break;
+          case CONSTANT_Float: {
+            float_info *f_info = (float_info *)pool_entry->info;
+            stack_push(&s, convert_float(f_info->bytes));
+          } break;
+          case CONSTANT_Double: {
+            double_info *d_info = (double_info *)pool_entry->info;
+            stack_push(&s,
+                       convert_double(d_info->high_bytes, d_info->low_bytes));
+          } break;
+          case CONSTANT_String: {
+            string_info *s_info = (string_info *)pool_entry->info;
+            utf8_info *utf8 = (utf8_info *)pool[s_info->string_index - 1].info;
+            stack_push(&s, (char *)utf8->bytes);
+          } break;
+          default:
+            printf("unknown ldc type: %d\n", pool_entry->tag);
+            return -1;
+        }
+      } break;
+      case op_ldc2_w: {
+        u2 index = (code_attr->code[++i] << 8) | code_attr->code[++i];
+        utf8_info *name = (utf8_info *)pool[index - 1].info;
+        printf("ldc2_w: %s\n", name->bytes);
+      } break;
+      case op_invokestatic: {
+        u2 index = (code_attr->code[++i] << 8) | code_attr->code[++i];
+        utf8_info *name = (utf8_info *)pool[index - 1].info;
+        printf("invokestatic: %s\n", name->bytes);
+      } break;
+      case op_putstatic: {
+        u2 index = (code_attr->code[++i] << 8) | code_attr->code[++i];
+        utf8_info *name =
+            find_in_ref_info(pool, (ref_info *)pool[index - 1].info);
+        printf("putstatic: %s\n", name->bytes);
+        while (!stack_empty(&s)) {
+          stack_entry entry;
+          stack_pop(&s, &entry);
+          printf("entry: ");
+          print_stack_entry(&entry);
+          printf("\n");
+        }
+        stack_reset(&s);
+      } break;
+
+      case op_return: {
+        printf("return\n");
+        return 0;
+      } break;
+
+      default:
+        printf("unknown opcode: %x\n", opcode);
+        return -1;
+    }
+  }
+
+  return 0;
+}
+
+int fill_jon_object(jon_value_pair *object, class_file *c_file) {
   for (int i = 0; i < c_file->fields_count; i++) {
     field_info *field = &c_file->fields[i];
     utf8_info *name =
@@ -945,36 +1159,28 @@ void fill_jon_object(jon_value_pair *object, class_file *c_file) {
     utf8_info *descriptor =
         (utf8_info *)c_file->constant_pool[field->descriptor_index - 1].info;
 
-    if (strcmp((char *)descriptor->bytes, boolean_descriptor) == 0) {
-      jon_value value;
-      value.type = jon_value_type_boolean;
-      object[i].value = value;
-    } else if (strcmp((char *)descriptor->bytes, int_descriptor) == 0) {
-      jon_value value;
-      value.type = jon_value_type_int;
-      object[i].value = value;
-    } else if (strcmp((char *)descriptor->bytes, float_descriptor) == 0) {
-      jon_value value;
-      value.type = jon_value_type_float;
-      object[i].value = value;
-    } else if (strcmp((char *)descriptor->bytes, double_descriptor) == 0) {
-      jon_value value;
-      value.type = jon_value_type_float;
-      object[i].value = value;
-    } else if (strcmp((char *)descriptor->bytes, string_descriptor) == 0) {
-      jon_value value;
-      value.type = jon_value_type_string;
-      object[i].value = value;
-    } else if (strcmp((char *)descriptor->bytes, list_descriptor) == 0) {
-      jon_value value;
-      value.type = jon_value_type_array;
-      object[i].value = value;
-    } else {
-      jon_value value;
-      value.type = jon_value_type_object;
-      object[i].value = value;
-    }
+    fill_jon_value_type(&object[i].value, descriptor);
   }
+
+  method_info *clinit = find_clinit(c_file);
+  if (!clinit) {
+    perror("could not find clinit");
+    return -1;
+  }
+
+  code_attribute *code_attr =
+      find_code_attribute(clinit, c_file->constant_pool);
+  if (!code_attr) {
+    perror("could not find code attribute");
+    return -1;
+  }
+
+  if (interpret_code(code_attr, object, c_file->constant_pool) < 0) {
+    perror("could not interpret code");
+    return -1;
+  }
+
+  return 0;
 }
 
 int main(int argc, char *argv[]) {
@@ -995,7 +1201,10 @@ int main(int argc, char *argv[]) {
     jon_value_pair *object =
         (jon_value_pair *)malloc(sizeof(jon_value_pair) * c_file.fields_count);
 
-    fill_jon_object(object, &c_file);
+    if (fill_jon_object(object, &c_file) < 0) {
+      perror("could not fill jon object");
+      return EXIT_FAILURE;
+    }
 
     printf("jon object:\n");
     for (int i = 0; i < c_file.fields_count; i++) {
