@@ -876,6 +876,107 @@ int parse_file(char *path, class_file *c_file) {
   return 0;
 }
 
+typedef enum jon_value_type : u1 {
+  jon_value_type_null = 0x0,
+  jon_value_type_boolean = 0x1,
+  jon_value_type_int = 0x2,
+  jon_value_type_float = 0x3,
+  jon_value_type_string = 0x4,
+  jon_value_type_array = 0x5,
+  jon_value_type_object = 0x6,
+} jon_value_type;
+
+typedef struct jon_value_pair jon_value_pair;
+
+typedef struct jon_value {
+  jon_value_type type;
+  union {
+    bool boolean_value;
+    int int_value;
+    float float_value;
+    double double_value;
+    char *string_value;
+    struct jon_value *array_value;
+    struct jon_value_pair *object_value;
+  } value;
+} jon_value;
+
+typedef struct jon_value_pair {
+  char *key;
+  jon_value value;
+} jon_value_pair;
+
+typedef enum opcode : u1 {
+  op_nop = 0x0,
+  op_aconst_null = 0x1,
+  op_iconst_m1 = 0x2,
+  op_iconst_0 = 0x3,
+  op_iconst_1 = 0x4,
+  op_iconst_2 = 0x5,
+  op_iconst_3 = 0x6,
+  op_iconst_4 = 0x7,
+  op_iconst_5 = 0x8,
+  op_fconst_0 = 0xb,
+  op_fconst_1 = 0xc,
+  op_fconst_2 = 0xd,
+  op_dconst_0 = 0xe,
+  op_dconst_1 = 0xf,
+  op_sipush = 0x11,
+  op_ldc = 0x12,
+  op_return = 0xb1,
+  op_putstatic = 0xb3,
+  op_invokestatic = 0xb8,
+} opcode;
+
+static const char *boolean_descriptor = "Z";
+static const char *int_descriptor = "I";
+static const char *float_descriptor = "F";
+static const char *double_descriptor = "D";
+static const char *string_descriptor = "Ljava/lang/String;";
+static const char *list_descriptor = "Ljava/util/List;";
+
+void fill_jon_object(jon_value_pair *object, class_file *c_file) {
+  for (int i = 0; i < c_file->fields_count; i++) {
+    field_info *field = &c_file->fields[i];
+    utf8_info *name =
+        (utf8_info *)c_file->constant_pool[field->name_index - 1].info;
+    object[i].key = (char *)name->bytes;
+
+    utf8_info *descriptor =
+        (utf8_info *)c_file->constant_pool[field->descriptor_index - 1].info;
+
+    if (strcmp((char *)descriptor->bytes, boolean_descriptor) == 0) {
+      jon_value value;
+      value.type = jon_value_type_boolean;
+      object[i].value = value;
+    } else if (strcmp((char *)descriptor->bytes, int_descriptor) == 0) {
+      jon_value value;
+      value.type = jon_value_type_int;
+      object[i].value = value;
+    } else if (strcmp((char *)descriptor->bytes, float_descriptor) == 0) {
+      jon_value value;
+      value.type = jon_value_type_float;
+      object[i].value = value;
+    } else if (strcmp((char *)descriptor->bytes, double_descriptor) == 0) {
+      jon_value value;
+      value.type = jon_value_type_float;
+      object[i].value = value;
+    } else if (strcmp((char *)descriptor->bytes, string_descriptor) == 0) {
+      jon_value value;
+      value.type = jon_value_type_string;
+      object[i].value = value;
+    } else if (strcmp((char *)descriptor->bytes, list_descriptor) == 0) {
+      jon_value value;
+      value.type = jon_value_type_array;
+      object[i].value = value;
+    } else {
+      jon_value value;
+      value.type = jon_value_type_object;
+      object[i].value = value;
+    }
+  }
+}
+
 int main(int argc, char *argv[]) {
   char *buffer;
   if ((buffer = _getcwd(NULL, 0)) == NULL) {
@@ -890,6 +991,16 @@ int main(int argc, char *argv[]) {
 
     class_file c_file;
     parse_file(path, &c_file);
+
+    jon_value_pair *object =
+        (jon_value_pair *)malloc(sizeof(jon_value_pair) * c_file.fields_count);
+
+    fill_jon_object(object, &c_file);
+
+    printf("jon object:\n");
+    for (int i = 0; i < c_file.fields_count; i++) {
+      printf("key: %s, type: %x\n", object[i].key, object[i].value.type);
+    }
   }
 
   free(buffer);
