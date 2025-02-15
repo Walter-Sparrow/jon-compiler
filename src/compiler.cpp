@@ -891,6 +891,11 @@ typedef enum jon_value_type : u1 {
 
 typedef struct jon_value_pair jon_value_pair;
 
+typedef struct jon_array {
+  u2 length;
+  struct jon_value *values;
+} jon_array;
+
 typedef struct jon_value {
   jon_value_type type;
   union {
@@ -899,7 +904,7 @@ typedef struct jon_value {
     float float_value;
     double double_value;
     char *string_value;
-    struct jon_value *array_value;
+    jon_array array_value;
     struct jon_value_pair *object_value;
   } value;
 } jon_value;
@@ -929,6 +934,7 @@ typedef enum opcode : u1 {
   op_ldc_w = 0x13,
   op_ldc2_w = 0x14,
   op_dastore = 0x52,
+  op_aastore = 0x53,
   op_dup = 0x59,
   op_return = 0xb1,
   op_putstatic = 0xb3,
@@ -937,29 +943,33 @@ typedef enum opcode : u1 {
   op_anewarray = 0xbd,
 } opcode;
 
-static const char *boolean_descriptor = "Z";
-static const char *int_descriptor = "I";
-static const char *float_descriptor = "F";
-static const char *double_descriptor = "D";
-static const char *string_descriptor = "Ljava/lang/String;";
-static const char *list_descriptor = "Ljava/util/List;";
+static const char *string_class_name = "java/lang/String";
+
+static const char boolean_descriptor = 'Z';
+static const char int_descriptor = 'I';
+static const char float_descriptor = 'F';
+static const char double_descriptor = 'D';
+static const char ref_descriptor = 'L';
+static const char array_descriptor = '[';
 
 void fill_jon_value_type(jon_value *value, utf8_info *descriptor) {
-  if (strcmp((char *)descriptor->bytes, boolean_descriptor) == 0) {
+  if (descriptor->bytes[0] == boolean_descriptor) {
     value->type = jon_value_type_boolean;
-  } else if (strcmp((char *)descriptor->bytes, int_descriptor) == 0) {
+  } else if (descriptor->bytes[0] == int_descriptor) {
     value->type = jon_value_type_int;
-  } else if (strcmp((char *)descriptor->bytes, float_descriptor) == 0) {
+  } else if (descriptor->bytes[0] == float_descriptor) {
     value->type = jon_value_type_float;
-  } else if (strcmp((char *)descriptor->bytes, double_descriptor) == 0) {
+  } else if (descriptor->bytes[0] == double_descriptor) {
     value->type = jon_value_type_float;
-  } else if (strcmp((char *)descriptor->bytes, string_descriptor) == 0) {
+  } else if (descriptor->bytes[0] == ref_descriptor &&
+             strcmp((char *)descriptor->bytes + 1, string_class_name) == 0) {
     value->type = jon_value_type_string;
-  } else if (strcmp((char *)descriptor->bytes, list_descriptor) == 0) {
+  } else if (descriptor->bytes[0] == array_descriptor) {
     value->type = jon_value_type_array;
   } else {
     value->type = jon_value_type_object;
   }
+  printf("type: %s\n", descriptor->bytes);
 }
 
 method_info *find_clinit(class_file *c_file) {
@@ -988,8 +998,8 @@ code_attribute *find_code_attribute(method_info *method, cp_info *pool) {
   return NULL;
 }
 
-int jon_object_set_value(jon_value_pair *object, char *key, jon_value value) {
-  size_t object_size = sizeof(object) / sizeof(jon_value_pair);
+int jon_object_set_value(jon_value_pair *object, u2 object_size, char *key,
+                         jon_value value) {
   for (int i = 0; i < object_size; i++) {
     if (strcmp(object[i].key, key) == 0) {
       object[i].value = value;
@@ -997,6 +1007,7 @@ int jon_object_set_value(jon_value_pair *object, char *key, jon_value value) {
     }
   }
 
+  printf("could not find key: %s\n", key);
   return -1;
 }
 
@@ -1068,8 +1079,66 @@ type_tag *init_array_type_to_type_tag_map() {
 
 static const type_tag *array_type_map = init_array_type_to_type_tag_map();
 
+jon_value_type *init_type_tag_to_jon_value_type_map() {
+  jon_value_type *map = (jon_value_type *)malloc(11 * sizeof(jon_value_type));
+  map[type_boolean] = jon_value_type_boolean;
+  map[type_int] = jon_value_type_int;
+  map[type_float] = jon_value_type_float;
+  map[type_double] = jon_value_type_double;
+  map[type_string] = jon_value_type_string;
+  map[type_array] = jon_value_type_array;
+  return map;
+}
+
+static const jon_value_type *type_tag_map =
+    init_type_tag_to_jon_value_type_map();
+
+int stack_value_to_jon_value(type_tag tag, stack_value s_value,
+                             jon_value *value) {
+  switch (tag) {
+    case type_boolean: {
+      value->type = jon_value_type_boolean;
+      value->value.boolean_value = s_value.boolean_value;
+    } break;
+    case type_int: {
+      value->type = jon_value_type_int;
+      value->value.int_value = s_value.int_value;
+    } break;
+    case type_float: {
+      value->type = jon_value_type_float;
+      value->value.float_value = s_value.float_value;
+    } break;
+    case type_double: {
+      value->type = jon_value_type_double;
+      value->value.double_value = s_value.double_value;
+    } break;
+    case type_string: {
+      value->type = jon_value_type_string;
+      value->value.string_value = s_value.string_value;
+    } break;
+    case type_array: {
+      value->type = jon_value_type_array;
+      value->value.array_value.length = s_value.array_value.length;
+      value->value.array_value.values =
+          (jon_value *)malloc(s_value.array_value.length * sizeof(jon_value));
+      for (int i = 0; i < s_value.array_value.length; i++) {
+        if (stack_value_to_jon_value(s_value.array_value.tag,
+                                     s_value.array_value.elements[i],
+                                     &value->value.array_value.values[i]) < 0) {
+          return -1;
+        }
+      }
+    } break;
+    default:
+      printf("unknown type tag: %d\n", tag);
+      return -1;
+  }
+
+  return 0;
+}
+
 int interpret_code(code_attribute *code_attr, jon_value_pair *object,
-                   cp_info *pool) {
+                   u2 object_size, cp_info *pool) {
   stack s;
   stack_init(&s, code_attr->max_stack);
   for (int i = 0; i < code_attr->code_length; i++) {
@@ -1131,6 +1200,28 @@ int interpret_code(code_attribute *code_attr, jon_value_pair *object,
       } break;
       case op_anewarray: {
         printf("anewarray\n");
+        stack_entry entry;
+        stack_pop(&s, &entry);
+        int count = entry.value.int_value;
+
+        u2 index = (code_attr->code[++i] << 8) | code_attr->code[++i];
+        cp_info *class_entry = &pool[index - 1];
+        class_info *c_info = (class_info *)class_entry->info;
+
+        cp_info *name_entry = &pool[c_info->name_index - 1];
+        utf8_info *name = (utf8_info *)name_entry->info;
+
+        if (strcmp((char *)name->bytes, string_class_name) == 0) {
+          array a;
+          a.tag = type_string;
+          a.length = count;
+          a.elements = (stack_value *)malloc(count * sizeof(stack_value));
+          printf("anewarray: %d with length: %d\n", a.tag, a.length);
+          stack_push(&s, a);
+        } else {
+          perror("unknown class type");
+          return -1;
+        }
       } break;
       case op_ldc: {
         u1 index = code_attr->code[++i];
@@ -1183,12 +1274,23 @@ int interpret_code(code_attribute *code_attr, jon_value_pair *object,
         stack_entry array_entry;
         stack_pop(&s, &array_entry);
 
-        stack_entry v;
-        stack_peek(&s, &v);
-
         array_entry.value.array_value.elements[index.value.int_value] =
             value_entry.value;
         printf("dastore: %f\n", value_entry.value.double_value);
+      } break;
+      case op_aastore: {
+        stack_entry value_entry;
+        stack_pop(&s, &value_entry);
+
+        stack_entry index;
+        stack_pop(&s, &index);
+
+        stack_entry array_entry;
+        stack_pop(&s, &array_entry);
+
+        array_entry.value.array_value.elements[index.value.int_value] =
+            value_entry.value;
+        printf("aastore\n");
       } break;
       case op_dup: {
         stack_entry entry;
@@ -1204,16 +1306,19 @@ int interpret_code(code_attribute *code_attr, jon_value_pair *object,
         u2 index = (code_attr->code[++i] << 8) | code_attr->code[++i];
         utf8_info *name =
             find_in_ref_info(pool, (ref_info *)pool[index - 1].info);
-        // TODO(ilya): find descriptor and set value
-        printf("putstatic: %s\n", name->bytes);
-        while (!stack_empty(&s)) {
-          stack_entry entry;
-          stack_pop(&s, &entry);
-          printf("entry: ");
-          print_stack_entry(&entry);
-          printf("\n");
+
+        stack_entry entry;
+        stack_pop(&s, &entry);
+
+        jon_value j_v;
+        stack_value_to_jon_value(entry.tag, entry.value, &j_v);
+        if (jon_object_set_value(object, object_size, (char *)name->bytes,
+                                 j_v) < 0) {
+          perror("could not set value");
+          return -1;
         }
-        stack_reset(&s);
+
+        printf("putstatic: %s\n", name->bytes);
       } break;
 
       case op_return: {
@@ -1230,7 +1335,8 @@ int interpret_code(code_attribute *code_attr, jon_value_pair *object,
   return 0;
 }
 
-int fill_jon_object(jon_value_pair *object, class_file *c_file) {
+int fill_jon_object(jon_value_pair *object, u2 object_size,
+                    class_file *c_file) {
   for (int i = 0; i < c_file->fields_count; i++) {
     field_info *field = &c_file->fields[i];
     utf8_info *name =
@@ -1256,11 +1362,72 @@ int fill_jon_object(jon_value_pair *object, class_file *c_file) {
     return -1;
   }
 
-  if (interpret_code(code_attr, object, c_file->constant_pool) < 0) {
+  if (interpret_code(code_attr, object, object_size, c_file->constant_pool) <
+      0) {
     perror("could not interpret code");
     return -1;
   }
 
+  return 0;
+}
+
+int serialize_jon_value_as_json(jon_value_type j_type, jon_value j_value,
+                                FILE *out) {
+  switch (j_type) {
+    case jon_value_type_boolean: {
+      fprintf(out, "%s", j_value.value.boolean_value ? "true" : "false");
+    } break;
+    case jon_value_type_int: {
+      fprintf(out, "%d", j_value.value.int_value);
+    } break;
+    case jon_value_type_float: {
+      fprintf(out, "%f", j_value.value.float_value);
+    } break;
+    case jon_value_type_double: {
+      fprintf(out, "%f", j_value.value.double_value);
+    } break;
+    case jon_value_type_string: {
+      fprintf(out, "\"%s\"", j_value.value.string_value);
+    } break;
+    case jon_value_type_array: {
+      fprintf(out, "[");
+      for (int i = 0; i < j_value.value.array_value.length; i++) {
+        serialize_jon_value_as_json(j_value.value.array_value.values[i].type,
+                                    j_value.value.array_value.values[i], out);
+        if (i < j_value.value.array_value.length - 1) {
+          fprintf(out, ", ");
+        }
+      }
+      fprintf(out, "]");
+    } break;
+    case jon_value_type_object: {
+      // TODO(ilya): implement
+      fprintf(out, "{}");
+    } break;
+    default:
+      perror("unknown jon value type");
+      return -1;
+  }
+
+  return 0;
+}
+
+int serialize_jon_object_as_json(jon_value_pair *object, u2 object_size,
+                                 FILE *out) {
+  fprintf(out, "{");
+  for (int i = 0; i < object_size; i++) {
+    fprintf(out, "\"%s\": ", object[i].key);
+    if (serialize_jon_value_as_json(object[i].value.type, object[i].value,
+                                    out) < 0) {
+      perror("could not serialize jon value as json");
+      return -1;
+    }
+
+    if (i < object_size - 1) {
+      fprintf(out, ", ");
+    }
+  }
+  fprintf(out, "}");
   return 0;
 }
 
@@ -1282,7 +1449,7 @@ int main(int argc, char *argv[]) {
     jon_value_pair *object =
         (jon_value_pair *)malloc(sizeof(jon_value_pair) * c_file.fields_count);
 
-    if (fill_jon_object(object, &c_file) < 0) {
+    if (fill_jon_object(object, c_file.fields_count, &c_file) < 0) {
       perror("could not fill jon object");
       return EXIT_FAILURE;
     }
@@ -1290,6 +1457,18 @@ int main(int argc, char *argv[]) {
     printf("jon object:\n");
     for (int i = 0; i < c_file.fields_count; i++) {
       printf("key: %s, type: %x\n", object[i].key, object[i].value.type);
+    }
+
+    FILE *json_file = fopen("output.json", "w");
+    if (!json_file) {
+      perror("could not open json file");
+      return EXIT_FAILURE;
+    }
+
+    if (serialize_jon_object_as_json(object, c_file.fields_count, json_file) <
+        0) {
+      perror("could not serialize jon object as json");
+      return EXIT_FAILURE;
     }
   }
 
