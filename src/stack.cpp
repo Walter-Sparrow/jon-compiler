@@ -19,6 +19,19 @@ void print_stack_entry(stack_entry *entry) {
     case type_string:
       printf("\"%s\"", entry->value.string_value);
       break;
+    case type_array:
+      printf("array: [");
+      for (size_t i = 0; i < entry->value.array_value.length; i++) {
+        stack_entry e;
+        e.tag = entry->value.array_value.tag;
+        e.value = entry->value.array_value.elements[i];
+        print_stack_entry(&e);
+        if (i != entry->value.array_value.length - 1) {
+          printf(", ");
+        }
+      }
+      printf("]");
+      break;
     default:
       printf("unknown tag: %d\n", entry->tag);
       break;
@@ -69,6 +82,26 @@ void stack_push(stack *s, const char *value) {
   VALIDATE_STACK(s);
   s->entries[s->sp].tag = type_string;
   s->entries[s->sp++].value.string_value = (char *)value;
+}
+
+void stack_push(stack *s, array value) {
+  VALIDATE_STACK(s);
+  s->entries[s->sp].tag = type_array;
+  s->entries[s->sp++].value.array_value = value;
+}
+
+void stack_push(stack *s, stack_entry entry) {
+  VALIDATE_STACK(s);
+  s->entries[s->sp++] = entry;
+}
+
+void stack_peek(stack *s, stack_entry *entry) {
+  if (s->sp == 0) {
+    perror("stack is empty");
+    return;
+  }
+
+  *entry = s->entries[s->sp - 1];
 }
 
 void stack_pop(stack *s, stack_entry *entry) {

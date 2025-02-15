@@ -141,7 +141,7 @@ int read_constant_pool(FILE *file, cp_info *pool, u2 count) {
     cp_info *pool_entry = &pool[i - 1];
     READ_U1(file, pool_entry->tag);
 
-    printf("pool_index: %d, ", i, pool_entry->tag);
+    printf("pool_index: %d, tag: %d ", i, pool_entry->tag);
     switch (pool_entry->tag) {
       case CONSTANT_Class: {
         class_info *c_info = (class_info *)malloc(sizeof(class_info));
@@ -928,9 +928,13 @@ typedef enum opcode : u1 {
   op_ldc = 0x12,
   op_ldc_w = 0x13,
   op_ldc2_w = 0x14,
+  op_dastore = 0x52,
+  op_dup = 0x59,
   op_return = 0xb1,
   op_putstatic = 0xb3,
   op_invokestatic = 0xb8,
+  op_newarray = 0xbc,
+  op_anewarray = 0xbd,
 } opcode;
 
 static const char *boolean_descriptor = "Z";
@@ -1023,8 +1027,12 @@ double convert_double(u4 high_bytes, u4 low_bytes) {
 
   int s = ((bits >> 63) == 0) ? 1 : -1;
   int e = (int)((bits >> 52) & 0x7ff);
-  long m = (e == 0) ? (bits & 0xfffffffffffff) << 1
-                    : (bits & 0xfffffffffffff) | 0x10000000000000;
+  u8 m = (bits & 0xfffffffffffff);
+
+  if (e == 0)
+    m <<= 1;
+  else
+    m |= 0x10000000000000;
 
   return s * m * pow(2, e - 1075);
 }
@@ -1035,6 +1043,30 @@ utf8_info *find_in_ref_info(cp_info *pool, ref_info *ref) {
 
   return (utf8_info *)pool[name_and_type->name_index - 1].info;
 }
+
+typedef enum array_type {
+  array_type_boolean = 0x4,
+  array_type_char = 0x5,
+  array_type_float = 0x6,
+  array_type_double = 0x7,
+  array_type_byte = 0x8,
+  array_type_short = 0x9,
+  array_type_int = 0xa,
+} array_type;
+
+type_tag *init_array_type_to_type_tag_map() {
+  type_tag *map = (type_tag *)malloc(11 * sizeof(type_tag));
+  map[array_type_boolean] = type_boolean;
+  map[array_type_char] = type_int;
+  map[array_type_float] = type_float;
+  map[array_type_double] = type_double;
+  map[array_type_byte] = type_int;
+  map[array_type_short] = type_int;
+  map[array_type_int] = type_int;
+  return map;
+}
+
+static const type_tag *array_type_map = init_array_type_to_type_tag_map();
 
 int interpret_code(code_attribute *code_attr, jon_value_pair *object,
                    cp_info *pool) {
@@ -1083,6 +1115,23 @@ int interpret_code(code_attribute *code_attr, jon_value_pair *object,
         u2 value = (code_attr->code[++i] << 8) | code_attr->code[++i];
         stack_push(&s, value);
       } break;
+      case op_newarray: {
+        u1 atype = code_attr->code[++i];
+
+        stack_entry entry;
+        stack_pop(&s, &entry);
+        int count = entry.value.int_value;
+
+        array a;
+        a.tag = array_type_map[atype];
+        a.length = count;
+        a.elements = (stack_value *)malloc(count * sizeof(stack_value));
+        printf("newarray: %d with length: %d\n", a.tag, a.length);
+        stack_push(&s, a);
+      } break;
+      case op_anewarray: {
+        printf("anewarray\n");
+      } break;
       case op_ldc: {
         u1 index = code_attr->code[++i];
         cp_info *pool_entry = &pool[index - 1];
@@ -1094,11 +1143,6 @@ int interpret_code(code_attribute *code_attr, jon_value_pair *object,
           case CONSTANT_Float: {
             float_info *f_info = (float_info *)pool_entry->info;
             stack_push(&s, convert_float(f_info->bytes));
-          } break;
-          case CONSTANT_Double: {
-            double_info *d_info = (double_info *)pool_entry->info;
-            stack_push(&s,
-                       convert_double(d_info->high_bytes, d_info->low_bytes));
           } break;
           case CONSTANT_String: {
             string_info *s_info = (string_info *)pool_entry->info;
@@ -1112,8 +1156,44 @@ int interpret_code(code_attribute *code_attr, jon_value_pair *object,
       } break;
       case op_ldc2_w: {
         u2 index = (code_attr->code[++i] << 8) | code_attr->code[++i];
-        utf8_info *name = (utf8_info *)pool[index - 1].info;
-        printf("ldc2_w: %s\n", name->bytes);
+        cp_info *pool_entry = &pool[index - 1];
+        printf("ldc2_w index: %d, tag: %d\n", index, pool_entry->tag);
+        switch (pool_entry->tag) {
+          case CONSTANT_Double: {
+            double_info *d_info = (double_info *)pool_entry->info;
+            printf("double tag: %d\n", d_info->tag);
+            printf("high bytes: %x, low bytes: %x\n", d_info->high_bytes,
+                   d_info->low_bytes);
+
+            double d = convert_double(d_info->high_bytes, d_info->low_bytes);
+            stack_push(&s, d);
+          } break;
+          default:
+            printf("unknown ldc2_w type: %d\n", pool_entry->tag);
+            return -1;
+        }
+      } break;
+      case op_dastore: {
+        stack_entry value_entry;
+        stack_pop(&s, &value_entry);
+
+        stack_entry index;
+        stack_pop(&s, &index);
+
+        stack_entry array_entry;
+        stack_pop(&s, &array_entry);
+
+        stack_entry v;
+        stack_peek(&s, &v);
+
+        array_entry.value.array_value.elements[index.value.int_value] =
+            value_entry.value;
+        printf("dastore: %f\n", value_entry.value.double_value);
+      } break;
+      case op_dup: {
+        stack_entry entry;
+        stack_peek(&s, &entry);
+        stack_push(&s, entry);
       } break;
       case op_invokestatic: {
         u2 index = (code_attr->code[++i] << 8) | code_attr->code[++i];
@@ -1124,6 +1204,7 @@ int interpret_code(code_attribute *code_attr, jon_value_pair *object,
         u2 index = (code_attr->code[++i] << 8) | code_attr->code[++i];
         utf8_info *name =
             find_in_ref_info(pool, (ref_info *)pool[index - 1].info);
+        // TODO(ilya): find descriptor and set value
         printf("putstatic: %s\n", name->bytes);
         while (!stack_empty(&s)) {
           stack_entry entry;
