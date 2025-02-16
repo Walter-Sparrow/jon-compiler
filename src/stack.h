@@ -1,5 +1,7 @@
 #pragma once
-#include <cstdint>
+
+#include <stdint.h>
+#include <stdbool.h>
 
 typedef enum type_tag {
   type_boolean,
@@ -42,13 +44,13 @@ void stack_init(stack *s, uint16_t size);
 void stack_reset(stack *s);
 bool stack_empty(stack *s);
 
-void stack_push(stack *s, bool value);
-void stack_push(stack *s, int value);
-void stack_push(stack *s, float value);
-void stack_push(stack *s, double value);
-void stack_push(stack *s, const char *value);
-void stack_push(stack *s, array value);
-void stack_push(stack *s, stack_entry entry);
+void stack_push_bool(stack *s, bool value);
+void stack_push_int(stack *s, int value);
+void stack_push_float(stack *s, float value);
+void stack_push_double(stack *s, double value);
+void stack_push_string(stack *s, const char *value);
+void stack_push_array(stack *s, array value);
+void stack_push_entry(stack *s, stack_entry entry);
 
 void stack_peek(stack *s, stack_entry *entry);
 void stack_pop(stack *s, stack_entry *entry);

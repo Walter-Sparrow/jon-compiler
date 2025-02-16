@@ -1,8 +1,11 @@
 #include <windows.h>
 #include <direct.h>
-#include <cstdio>
-#include <cstdint>
-#include <cmath>
+#include <stddef.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdint.h>
+#include <math.h>
+#include <stdio.h>
 #include "stack.h"
 
 typedef uint8_t u1;
@@ -298,7 +301,7 @@ void read_signature_attribute(FILE *file, signature_attribute *info,
 typedef struct enum_const_value {
   u2 type_name_index;
   u2 const_name_index;
-} const_value_index;
+} enum_const_value;
 
 typedef struct annotation annotation;
 typedef struct element_value element_value;
@@ -413,7 +416,7 @@ int read_code_attribute(FILE *file, code_attribute *info, cp_info *pool) {
   info->code = (u1 *)malloc(info->code_length * sizeof(u1));
   fread(info->code, info->code_length, 1, file);
   printf("      code: ");
-  for (int i = 0; i < info->code_length; i++) {
+  for (u4 i = 0; i < info->code_length; i++) {
     printf("%x ", info->code[i]);
   }
   printf("\n");
@@ -878,7 +881,7 @@ int parse_file(char *path, class_file *c_file) {
   return 0;
 }
 
-typedef enum jon_value_type : u1 {
+typedef enum jon_value_type {
   jon_value_type_null = 0x0,
   jon_value_type_boolean = 0x1,
   jon_value_type_int = 0x2,
@@ -914,7 +917,7 @@ typedef struct jon_value_pair {
   jon_value value;
 } jon_value_pair;
 
-typedef enum opcode : u1 {
+typedef enum opcode {
   op_nop = 0x0,
   op_aconst_null = 0x1,
   op_iconst_m1 = 0x2,
@@ -1012,17 +1015,15 @@ int jon_object_set_value(jon_value_pair *object, u2 object_size, char *key,
 }
 
 float convert_float(u4 bytes) {
-  int bits = bytes;
-
-  if (bits == 0x7f800000) return INFINITY;
-  if (bits == 0xff800000) return -INFINITY;
-  if ((bits >= 0x7f800001 && bits <= 0x7fffffff) ||
-      (bits >= 0xff800001 && bits <= 0xffffffff))
+  if (bytes == 0x7f800000) return INFINITY;
+  if (bytes == 0xff800000) return -INFINITY;
+  if ((bytes >= 0x7f800001 && bytes <= 0x7fffffff) ||
+      (bytes >= 0xff800001 && bytes <= 0xffffffff))
     return NAN;
 
-  int s = ((bits >> 31) == 0) ? 1 : -1;
-  int e = ((bits >> 23) & 0xff);
-  int m = (e == 0) ? (bits & 0x7fffff) << 1 : (bits & 0x7fffff) | 0x800000;
+  int s = ((bytes >> 31) == 0) ? 1 : -1;
+  int e = ((bytes >> 23) & 0xff);
+  u4 m = (e == 0) ? (bytes & 0x7fffff) << 1 : (bytes & 0x7fffff) | 0x800000;
 
   return s * m * pow(2, e - 150);
 }
@@ -1065,33 +1066,11 @@ typedef enum array_type {
   array_type_int = 0xa,
 } array_type;
 
-type_tag *init_array_type_to_type_tag_map() {
-  type_tag *map = (type_tag *)malloc(11 * sizeof(type_tag));
-  map[array_type_boolean] = type_boolean;
-  map[array_type_char] = type_int;
-  map[array_type_float] = type_float;
-  map[array_type_double] = type_double;
-  map[array_type_byte] = type_int;
-  map[array_type_short] = type_int;
-  map[array_type_int] = type_int;
-  return map;
-}
-
-static const type_tag *array_type_map = init_array_type_to_type_tag_map();
-
-jon_value_type *init_type_tag_to_jon_value_type_map() {
-  jon_value_type *map = (jon_value_type *)malloc(11 * sizeof(jon_value_type));
-  map[type_boolean] = jon_value_type_boolean;
-  map[type_int] = jon_value_type_int;
-  map[type_float] = jon_value_type_float;
-  map[type_double] = jon_value_type_double;
-  map[type_string] = jon_value_type_string;
-  map[type_array] = jon_value_type_array;
-  return map;
-}
-
-static const jon_value_type *type_tag_map =
-    init_type_tag_to_jon_value_type_map();
+static const type_tag array_type_map[] = {
+    [array_type_boolean] = type_boolean, [array_type_char] = type_int,
+    [array_type_float] = type_float,     [array_type_double] = type_double,
+    [array_type_byte] = type_int,        [array_type_short] = type_int,
+    [array_type_int] = type_int};
 
 int stack_value_to_jon_value(type_tag tag, stack_value s_value,
                              jon_value *value) {
@@ -1121,7 +1100,7 @@ int stack_value_to_jon_value(type_tag tag, stack_value s_value,
       value->value.array_value.length = s_value.array_value.length;
       value->value.array_value.values =
           (jon_value *)malloc(s_value.array_value.length * sizeof(jon_value));
-      for (int i = 0; i < s_value.array_value.length; i++) {
+      for (size_t i = 0; i < s_value.array_value.length; i++) {
         if (stack_value_to_jon_value(s_value.array_value.tag,
                                      s_value.array_value.elements[i],
                                      &value->value.array_value.values[i]) < 0) {
@@ -1141,48 +1120,50 @@ int interpret_code(code_attribute *code_attr, jon_value_pair *object,
                    u2 object_size, cp_info *pool) {
   stack s;
   stack_init(&s, code_attr->max_stack);
-  for (int i = 0; i < code_attr->code_length; i++) {
+  for (u4 i = 0; i < code_attr->code_length; i++) {
     u1 opcode = code_attr->code[i];
     switch (opcode) {
       case op_iconst_m1: {
-        stack_push(&s, -1);
+        stack_push_int(&s, -1);
       } break;
       case op_iconst_0: {
-        stack_push(&s, 0);
+        stack_push_int(&s, 0);
       } break;
       case op_iconst_1: {
-        stack_push(&s, 1);
+        stack_push_int(&s, 1);
       } break;
       case op_iconst_2: {
-        stack_push(&s, 2);
+        stack_push_int(&s, 2);
       } break;
       case op_iconst_3: {
-        stack_push(&s, 3);
+        stack_push_int(&s, 3);
       } break;
       case op_iconst_4: {
-        stack_push(&s, 4);
+        stack_push_int(&s, 4);
       } break;
       case op_iconst_5: {
-        stack_push(&s, 5);
+        stack_push_int(&s, 5);
       } break;
       case op_fconst_0: {
-        stack_push(&s, 0.0f);
+        stack_push_float(&s, 0.0f);
       } break;
       case op_fconst_1: {
-        stack_push(&s, 1.0f);
+        stack_push_float(&s, 1.0f);
       } break;
       case op_fconst_2: {
-        stack_push(&s, 2.0f);
+        stack_push_float(&s, 2.0f);
       } break;
       case op_dconst_0: {
-        stack_push(&s, (double)0.0);
+        stack_push_double(&s, 0.0);
       } break;
       case op_dconst_1: {
-        stack_push(&s, (double)1.0);
+        stack_push_double(&s, 1.0);
       } break;
       case op_sipush: {
-        u2 value = (code_attr->code[++i] << 8) | code_attr->code[++i];
-        stack_push(&s, value);
+        u2 value = (code_attr->code[i + 1] << 8) | code_attr->code[i + 2];
+        i += 2;
+
+        stack_push_int(&s, value);
       } break;
       case op_newarray: {
         u1 atype = code_attr->code[++i];
@@ -1195,8 +1176,8 @@ int interpret_code(code_attribute *code_attr, jon_value_pair *object,
         a.tag = array_type_map[atype];
         a.length = count;
         a.elements = (stack_value *)malloc(count * sizeof(stack_value));
-        printf("newarray: %d with length: %d\n", a.tag, a.length);
-        stack_push(&s, a);
+        printf("newarray: %d with length: %lld\n", a.tag, a.length);
+        stack_push_array(&s, a);
       } break;
       case op_anewarray: {
         printf("anewarray\n");
@@ -1204,7 +1185,9 @@ int interpret_code(code_attribute *code_attr, jon_value_pair *object,
         stack_pop(&s, &entry);
         int count = entry.value.int_value;
 
-        u2 index = (code_attr->code[++i] << 8) | code_attr->code[++i];
+        u2 index = (code_attr->code[i + 1] << 8) | code_attr->code[i + 2];
+        i += 2;
+
         cp_info *class_entry = &pool[index - 1];
         class_info *c_info = (class_info *)class_entry->info;
 
@@ -1216,8 +1199,8 @@ int interpret_code(code_attribute *code_attr, jon_value_pair *object,
           a.tag = type_string;
           a.length = count;
           a.elements = (stack_value *)malloc(count * sizeof(stack_value));
-          printf("anewarray: %d with length: %d\n", a.tag, a.length);
-          stack_push(&s, a);
+          printf("anewarray: %d with length: %lld\n", a.tag, a.length);
+          stack_push_array(&s, a);
         } else {
           perror("unknown class type");
           return -1;
@@ -1229,16 +1212,16 @@ int interpret_code(code_attribute *code_attr, jon_value_pair *object,
         switch (pool_entry->tag) {
           case CONSTANT_Integer: {
             integer_info *i_info = (integer_info *)pool_entry->info;
-            stack_push(&s, (int)i_info->bytes);
+            stack_push_int(&s, (int)i_info->bytes);
           } break;
           case CONSTANT_Float: {
             float_info *f_info = (float_info *)pool_entry->info;
-            stack_push(&s, convert_float(f_info->bytes));
+            stack_push_float(&s, convert_float(f_info->bytes));
           } break;
           case CONSTANT_String: {
             string_info *s_info = (string_info *)pool_entry->info;
             utf8_info *utf8 = (utf8_info *)pool[s_info->string_index - 1].info;
-            stack_push(&s, (char *)utf8->bytes);
+            stack_push_string(&s, (char *)utf8->bytes);
           } break;
           default:
             printf("unknown ldc type: %d\n", pool_entry->tag);
@@ -1246,7 +1229,9 @@ int interpret_code(code_attribute *code_attr, jon_value_pair *object,
         }
       } break;
       case op_ldc2_w: {
-        u2 index = (code_attr->code[++i] << 8) | code_attr->code[++i];
+        u2 index = (code_attr->code[i + 1] << 8) | code_attr->code[i + 2];
+        i += 2;
+
         cp_info *pool_entry = &pool[index - 1];
         printf("ldc2_w index: %d, tag: %d\n", index, pool_entry->tag);
         switch (pool_entry->tag) {
@@ -1257,7 +1242,7 @@ int interpret_code(code_attribute *code_attr, jon_value_pair *object,
                    d_info->low_bytes);
 
             double d = convert_double(d_info->high_bytes, d_info->low_bytes);
-            stack_push(&s, d);
+            stack_push_double(&s, d);
           } break;
           default:
             printf("unknown ldc2_w type: %d\n", pool_entry->tag);
@@ -1295,15 +1280,19 @@ int interpret_code(code_attribute *code_attr, jon_value_pair *object,
       case op_dup: {
         stack_entry entry;
         stack_peek(&s, &entry);
-        stack_push(&s, entry);
+        stack_push_entry(&s, entry);
       } break;
       case op_invokestatic: {
-        u2 index = (code_attr->code[++i] << 8) | code_attr->code[++i];
+        u2 index = (code_attr->code[i + 1] << 8) | code_attr->code[i + 2];
+        i += 2;
+
         utf8_info *name = (utf8_info *)pool[index - 1].info;
         printf("invokestatic: %s\n", name->bytes);
       } break;
       case op_putstatic: {
-        u2 index = (code_attr->code[++i] << 8) | code_attr->code[++i];
+        u2 index = (code_attr->code[i + 1] << 8) | code_attr->code[i + 2];
+        i += 2;
+
         utf8_info *name =
             find_in_ref_info(pool, (ref_info *)pool[index - 1].info);
 

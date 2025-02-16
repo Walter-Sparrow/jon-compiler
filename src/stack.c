@@ -54,43 +54,43 @@ bool stack_empty(stack *s) { return s->sp == 0; }
     return;                  \
   }
 
-void stack_push(stack *s, bool value) {
+void stack_push_bool(stack *s, bool value) {
   VALIDATE_STACK(s);
   s->entries[s->sp].tag = type_boolean;
   s->entries[s->sp++].value.boolean_value = value;
 }
 
-void stack_push(stack *s, int value) {
+void stack_push_int(stack *s, int value) {
   VALIDATE_STACK(s);
   s->entries[s->sp].tag = type_int;
   s->entries[s->sp++].value.int_value = value;
 }
 
-void stack_push(stack *s, float value) {
+void stack_push_float(stack *s, float value) {
   VALIDATE_STACK(s);
   s->entries[s->sp].tag = type_float;
   s->entries[s->sp++].value.float_value = value;
 }
 
-void stack_push(stack *s, double value) {
+void stack_push_double(stack *s, double value) {
   VALIDATE_STACK(s);
   s->entries[s->sp].tag = type_double;
   s->entries[s->sp++].value.double_value = value;
 }
 
-void stack_push(stack *s, const char *value) {
+void stack_push_string(stack *s, const char *value) {
   VALIDATE_STACK(s);
   s->entries[s->sp].tag = type_string;
   s->entries[s->sp++].value.string_value = (char *)value;
 }
 
-void stack_push(stack *s, array value) {
+void stack_push_array(stack *s, array value) {
   VALIDATE_STACK(s);
   s->entries[s->sp].tag = type_array;
   s->entries[s->sp++].value.array_value = value;
 }
 
-void stack_push(stack *s, stack_entry entry) {
+void stack_push_entry(stack *s, stack_entry entry) {
   VALIDATE_STACK(s);
   s->entries[s->sp++] = entry;
 }
