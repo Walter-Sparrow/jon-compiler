@@ -1,8 +1,9 @@
 #include <windows.h>
 #include <direct.h>
+#include "value.h"
 #include "parser.h"
 #include "interpreter.h"
-#include "jon.h"
+#include "json.h"
 
 int main(int argc, char *argv[]) {
   char *buffer;
@@ -19,18 +20,8 @@ int main(int argc, char *argv[]) {
     class_file c_file;
     parse_file(path, &c_file);
 
-    jon_value_pair *object =
-        (jon_value_pair *)malloc(sizeof(jon_value_pair) * c_file.fields_count);
-
-    if (fill_jon_object(object, c_file.fields_count, &c_file) < 0) {
-      perror("could not fill jon object");
-      return EXIT_FAILURE;
-    }
-
-    printf("jon object:\n");
-    for (int i = 0; i < c_file.fields_count; i++) {
-      printf("key: %s, type: %x\n", object[i].key, object[i].value.type);
-    }
+    object obj;
+    object_init(&obj, c_file.fields_count);
 
     FILE *json_file = fopen("output.json", "w");
     if (!json_file) {
@@ -38,11 +29,25 @@ int main(int argc, char *argv[]) {
       return EXIT_FAILURE;
     }
 
-    if (serialize_jon_object_as_json(object, c_file.fields_count, json_file) <
-        0) {
-      perror("could not serialize jon object as json");
-      return EXIT_FAILURE;
+    method_info *clinit = find_clinit(&c_file);
+    if (!clinit) {
+      perror("could not find clinit");
+      return -1;
     }
+
+    code_attribute *code_attr =
+        find_code_attribute(clinit, c_file.constant_pool);
+    if (!code_attr) {
+      perror("could not find code attribute");
+      return -1;
+    }
+
+    if (!interpret_code(code_attr, &obj, c_file.constant_pool)) {
+      perror("could not interpret code");
+      return -1;
+    }
+
+    object_to_json(json_file, &obj);
   }
 
   free(buffer);

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "value.h"
 #include "parser.h"
 #include "stack.h"
 
@@ -51,19 +52,10 @@ static const char double_descriptor = 'D';
 static const char ref_descriptor = 'L';
 static const char array_descriptor = '[';
 
-static const type_tag array_type_map[] = {
-    [array_type_boolean] = type_boolean, [array_type_char] = type_int,
-    [array_type_float] = type_float,     [array_type_double] = type_double,
-    [array_type_byte] = type_int,        [array_type_short] = type_int,
-    [array_type_int] = type_int};
-
-typedef struct jon_value_pair jon_value_pair;
-
 float convert_float(u4 bytes);
 double convert_double(u4 high_bytes, u4 low_bytes);
 utf8_info *find_in_ref_info(cp_info *pool, ref_info *ref);
 code_attribute *find_code_attribute(method_info *method, cp_info *pool);
 method_info *find_clinit(class_file *c_file);
 
-int interpret_code(code_attribute *code_attr, jon_value_pair *object,
-                   u2 object_size, cp_info *pool);
+bool interpret_code(code_attribute *code_attr, object *obj, cp_info *pool);

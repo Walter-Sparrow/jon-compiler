@@ -1,5 +1,4 @@
 #include "interpreter.h"
-#include "jon.h"
 #include <math.h>
 #include <string.h>
 
@@ -77,8 +76,7 @@ code_attribute *find_code_attribute(method_info *method, cp_info *pool) {
   return NULL;
 }
 
-int interpret_code(code_attribute *code_attr, jon_value_pair *object,
-                   u2 object_size, cp_info *pool) {
+bool interpret_code(code_attribute *code_attr, object *obj, cp_info *pool) {
   stack s;
   stack_init(&s, code_attr->max_stack);
   for (u4 i = 0; i < code_attr->code_length; i++) {
@@ -127,24 +125,20 @@ int interpret_code(code_attribute *code_attr, jon_value_pair *object,
       stack_push_int(&s, value);
     } break;
     case op_newarray: {
-      u1 atype = code_attr->code[++i];
+      i++; // ignore atype
 
-      stack_entry entry;
-      stack_pop(&s, &entry);
-      int count = entry.value.int_value;
+      value val;
+      stack_pop(&s, &val);
+      int count = val.as.int_value;
 
-      array a;
-      a.tag = array_type_map[atype];
-      a.length = count;
-      a.elements = (stack_value *)malloc(count * sizeof(stack_value));
-      printf("newarray: %d with length: %lld\n", a.tag, a.length);
+      array *a = array_new(count);
       stack_push_array(&s, a);
+      printf("newarray: length: %lld\n", a->length);
     } break;
     case op_anewarray: {
-      printf("anewarray\n");
-      stack_entry entry;
-      stack_pop(&s, &entry);
-      int count = entry.value.int_value;
+      value val;
+      stack_pop(&s, &val);
+      int count = val.as.int_value;
 
       u2 index = (code_attr->code[i + 1] << 8) | code_attr->code[i + 2];
       i += 2;
@@ -156,12 +150,9 @@ int interpret_code(code_attribute *code_attr, jon_value_pair *object,
       utf8_info *name = (utf8_info *)name_entry->info;
 
       if (strcmp((char *)name->bytes, string_class_name) == 0) {
-        array a;
-        a.tag = type_string;
-        a.length = count;
-        a.elements = (stack_value *)malloc(count * sizeof(stack_value));
-        printf("anewarray: %d with length: %lld\n", a.tag, a.length);
+        array *a = array_new(count);
         stack_push_array(&s, a);
+        printf("anewarray: with length: %lld\n", a->length);
       } else {
         perror("unknown class type");
         return -1;
@@ -211,37 +202,35 @@ int interpret_code(code_attribute *code_attr, jon_value_pair *object,
       }
     } break;
     case op_dastore: {
-      stack_entry value_entry;
-      stack_pop(&s, &value_entry);
+      value val;
+      stack_pop(&s, &val);
 
-      stack_entry index;
-      stack_pop(&s, &index);
+      value index_val;
+      stack_pop(&s, &index_val);
 
-      stack_entry array_entry;
-      stack_pop(&s, &array_entry);
+      value array_val;
+      stack_pop(&s, &array_val);
 
-      array_entry.value.array_value.elements[index.value.int_value] =
-          value_entry.value;
-      printf("dastore: %f\n", value_entry.value.double_value);
+      array_val.as.array_value->elements[index_val.as.int_value] = val;
+      printf("dastore: %f\n", val.as.double_value);
     } break;
     case op_aastore: {
-      stack_entry value_entry;
-      stack_pop(&s, &value_entry);
+      value val;
+      stack_pop(&s, &val);
 
-      stack_entry index;
-      stack_pop(&s, &index);
+      value index_val;
+      stack_pop(&s, &index_val);
 
-      stack_entry array_entry;
-      stack_pop(&s, &array_entry);
+      value array_val;
+      stack_pop(&s, &array_val);
 
-      array_entry.value.array_value.elements[index.value.int_value] =
-          value_entry.value;
+      array_val.as.array_value->elements[index_val.as.int_value] = val;
       printf("aastore\n");
     } break;
     case op_dup: {
-      stack_entry entry;
-      stack_peek(&s, &entry);
-      stack_push_entry(&s, entry);
+      value val;
+      stack_peek(&s, &val);
+      stack_push(&s, val);
     } break;
     case op_invokestatic: {
       u2 index = (code_attr->code[i + 1] << 8) | code_attr->code[i + 2];
@@ -257,15 +246,13 @@ int interpret_code(code_attribute *code_attr, jon_value_pair *object,
       utf8_info *name =
           find_in_ref_info(pool, (ref_info *)pool[index - 1].info);
 
-      stack_entry entry;
-      stack_pop(&s, &entry);
+      value val;
+      stack_pop(&s, &val);
 
-      jon_value j_v;
-      stack_value_to_jon_value(entry.tag, entry.value, &j_v);
-      if (jon_object_set_value(object, object_size, (char *)name->bytes, j_v) <
-          0) {
+      char *key = (char *)name->bytes;
+      if (!object_set_value(obj, key, val)) {
         perror("could not set value");
-        return -1;
+        return false;
       }
 
       printf("putstatic: %s\n", name->bytes);
@@ -273,14 +260,14 @@ int interpret_code(code_attribute *code_attr, jon_value_pair *object,
 
     case op_return: {
       printf("return\n");
-      return 0;
+      return true;
     } break;
 
     default:
       printf("unknown opcode: %x\n", opcode);
-      return -1;
+      return false;
     }
   }
 
-  return 0;
+  return true;
 }
