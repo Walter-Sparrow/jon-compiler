@@ -76,197 +76,265 @@ code_attribute *find_code_attribute(method_info *method, cp_info *pool) {
   return NULL;
 }
 
+static instruction_state iconst_m1(interpreter_state *state) {
+  stack_push_int(&state->s, -1);
+  return instruction_state_continue;
+}
+
+static instruction_state iconst_0(interpreter_state *state) {
+  stack_push_int(&state->s, 0);
+  return instruction_state_continue;
+}
+
+static instruction_state iconst_1(interpreter_state *state) {
+  stack_push_int(&state->s, 1);
+  return instruction_state_continue;
+}
+
+static instruction_state iconst_2(interpreter_state *state) {
+  stack_push_int(&state->s, 2);
+  return instruction_state_continue;
+}
+
+static instruction_state iconst_3(interpreter_state *state) {
+  stack_push_int(&state->s, 3);
+  return instruction_state_continue;
+}
+
+static instruction_state iconst_4(interpreter_state *state) {
+  stack_push_int(&state->s, 4);
+  return instruction_state_continue;
+}
+
+static instruction_state iconst_5(interpreter_state *state) {
+  stack_push_int(&state->s, 5);
+  return instruction_state_continue;
+}
+
+static instruction_state fconst_0(interpreter_state *state) {
+  stack_push_float(&state->s, 0.0f);
+  return instruction_state_continue;
+}
+
+static instruction_state fconst_1(interpreter_state *state) {
+  stack_push_float(&state->s, 1.0f);
+  return instruction_state_continue;
+}
+
+static instruction_state fconst_2(interpreter_state *state) {
+  stack_push_float(&state->s, 2.0f);
+  return instruction_state_continue;
+}
+
+static instruction_state dconst_0(interpreter_state *state) {
+  stack_push_double(&state->s, 0.0);
+  return instruction_state_continue;
+}
+
+static instruction_state dconst_1(interpreter_state *state) {
+  stack_push_double(&state->s, 1.0);
+  return instruction_state_continue;
+}
+
+static instruction_state sipush(interpreter_state *state) {
+  u2 value = (state->code[state->pc + 1] << 8) | state->code[state->pc + 2];
+  state->pc += 2;
+
+  stack_push_int(&state->s, value);
+  return instruction_state_continue;
+}
+
+static instruction_state ldc(interpreter_state *state) {
+  u1 index = state->code[state->pc + 1];
+  state->pc += 1;
+
+  cp_info *pool_entry = &state->pool[index - 1];
+  switch (pool_entry->tag) {
+  case CONSTANT_Integer: {
+    integer_info *i_info = (integer_info *)pool_entry->info;
+    stack_push_int(&state->s, (int)i_info->bytes);
+  } break;
+  case CONSTANT_Float: {
+    float_info *f_info = (float_info *)pool_entry->info;
+    stack_push_float(&state->s, convert_float(f_info->bytes));
+  } break;
+  case CONSTANT_String: {
+    string_info *s_info = (string_info *)pool_entry->info;
+    utf8_info *utf8 = (utf8_info *)state->pool[s_info->string_index - 1].info;
+    stack_push_string(&state->s, (char *)utf8->bytes);
+  } break;
+  default:
+    printf("unknown ldc type: %d\n", pool_entry->tag);
+    return instruction_state_error;
+  }
+
+  return instruction_state_continue;
+}
+
+static instruction_state ldc2_w(interpreter_state *state) {
+  u2 index = (state->code[state->pc + 1] << 8) | state->code[state->pc + 2];
+  state->pc += 2;
+
+  cp_info *pool_entry = &state->pool[index - 1];
+  switch (pool_entry->tag) {
+  case CONSTANT_Double: {
+    double_info *d_info = (double_info *)pool_entry->info;
+    stack_push_double(&state->s,
+                      convert_double(d_info->high_bytes, d_info->low_bytes));
+  } break;
+  default:
+    printf("unknown ldc2_w type: %d\n", pool_entry->tag);
+    return instruction_state_error;
+  }
+
+  return instruction_state_continue;
+}
+
+static instruction_state dastore(interpreter_state *state) {
+  value val;
+  stack_pop(&state->s, &val);
+
+  value index_val;
+  stack_pop(&state->s, &index_val);
+
+  value array_val;
+  stack_pop(&state->s, &array_val);
+
+  array_val.as.array_value->elements[index_val.as.int_value] = val;
+  printf("dastore: %f\n", val.as.double_value);
+
+  return instruction_state_continue;
+}
+
+static instruction_state aastore(interpreter_state *state) {
+  value val;
+  stack_pop(&state->s, &val);
+
+  value index_val;
+  stack_pop(&state->s, &index_val);
+
+  value array_val;
+  stack_pop(&state->s, &array_val);
+
+  array_val.as.array_value->elements[index_val.as.int_value] = val;
+  printf("aastore\n");
+
+  return instruction_state_continue;
+}
+
+static instruction_state dup(interpreter_state *state) {
+  value val;
+  stack_peek(&state->s, &val);
+  stack_push(&state->s, val);
+  return instruction_state_continue;
+}
+
+static instruction_state return_op(interpreter_state * /*state*/) {
+  printf("return\n");
+  return instruction_state_return;
+}
+
+static instruction_state putstatic(interpreter_state *state) {
+  u2 index = (state->code[state->pc + 1] << 8) | state->code[state->pc + 2];
+  state->pc += 2;
+
+  cp_info *pool_entry = &state->pool[index - 1];
+  ref_info *ref = (ref_info *)pool_entry->info;
+
+  utf8_info *name = find_in_ref_info(state->pool, ref);
+  value val;
+  stack_pop(&state->s, &val);
+
+  char *key = (char *)name->bytes;
+  if (!object_set_value(state->obj, key, val)) {
+    perror("could not set value");
+    return instruction_state_error;
+  }
+
+  printf("putstatic: %s\n", name->bytes);
+  return instruction_state_continue;
+}
+
+static instruction_state newarray(interpreter_state *state) {
+  state->pc += 1; // ignore atype
+
+  value val;
+  stack_pop(&state->s, &val);
+  int count = val.as.int_value;
+
+  array *a = array_new(count);
+  stack_push_array(&state->s, a);
+  printf("newarray: length: %lld\n", a->length);
+
+  return instruction_state_continue;
+}
+
+static instruction_state anewarray(interpreter_state *state) {
+  u2 index = (state->code[state->pc + 1] << 8) | state->code[state->pc + 2];
+  state->pc += 2;
+
+  cp_info *class_entry = &state->pool[index - 1];
+  class_info *c_info = (class_info *)class_entry->info;
+
+  cp_info *name_entry = &state->pool[c_info->name_index - 1];
+  utf8_info *name = (utf8_info *)name_entry->info;
+
+  if (strcmp((char *)name->bytes, string_class_name) == 0) {
+    value val;
+    stack_pop(&state->s, &val);
+    int count = val.as.int_value;
+
+    array *a = array_new(count);
+    stack_push_array(&state->s, a);
+    printf("anewarray: length: %lld\n", a->length);
+  } else {
+    perror("unknown class type");
+    return instruction_state_error;
+  }
+
+  return instruction_state_continue;
+}
+
+static instruction instructions[] = {
+    [op_iconst_m1] = iconst_m1, [op_iconst_0] = iconst_0,
+    [op_iconst_1] = iconst_1,   [op_iconst_2] = iconst_2,
+    [op_iconst_3] = iconst_3,   [op_iconst_4] = iconst_4,
+    [op_iconst_5] = iconst_5,   [op_fconst_0] = fconst_0,
+    [op_fconst_1] = fconst_1,   [op_fconst_2] = fconst_2,
+    [op_dconst_0] = dconst_0,   [op_dconst_1] = dconst_1,
+    [op_sipush] = sipush,       [op_ldc] = ldc,
+    [op_ldc2_w] = ldc2_w,       [op_dastore] = dastore,
+    [op_aastore] = aastore,     [op_dup] = dup,
+    [op_return] = return_op,    [op_putstatic] = putstatic,
+    [op_newarray] = newarray,   [op_anewarray] = anewarray,
+};
+
 bool interpret_code(code_attribute *code_attr, object *obj, cp_info *pool) {
-  stack s;
-  stack_init(&s, code_attr->max_stack);
-  for (u4 i = 0; i < code_attr->code_length; i++) {
-    u1 opcode = code_attr->code[i];
-    switch (opcode) {
-    case op_iconst_m1: {
-      stack_push_int(&s, -1);
-    } break;
-    case op_iconst_0: {
-      stack_push_int(&s, 0);
-    } break;
-    case op_iconst_1: {
-      stack_push_int(&s, 1);
-    } break;
-    case op_iconst_2: {
-      stack_push_int(&s, 2);
-    } break;
-    case op_iconst_3: {
-      stack_push_int(&s, 3);
-    } break;
-    case op_iconst_4: {
-      stack_push_int(&s, 4);
-    } break;
-    case op_iconst_5: {
-      stack_push_int(&s, 5);
-    } break;
-    case op_fconst_0: {
-      stack_push_float(&s, 0.0f);
-    } break;
-    case op_fconst_1: {
-      stack_push_float(&s, 1.0f);
-    } break;
-    case op_fconst_2: {
-      stack_push_float(&s, 2.0f);
-    } break;
-    case op_dconst_0: {
-      stack_push_double(&s, 0.0);
-    } break;
-    case op_dconst_1: {
-      stack_push_double(&s, 1.0);
-    } break;
-    case op_sipush: {
-      u2 value = (code_attr->code[i + 1] << 8) | code_attr->code[i + 2];
-      i += 2;
+  interpreter_state state = {.code = code_attr->code,
+                             .pc = 0,
+                             .code_length = code_attr->code_length,
+                             .obj = obj,
+                             .pool = pool};
 
-      stack_push_int(&s, value);
-    } break;
-    case op_newarray: {
-      i++; // ignore atype
+  stack_init(&state.s, code_attr->max_stack);
 
-      value val;
-      stack_pop(&s, &val);
-      int count = val.as.int_value;
-
-      array *a = array_new(count);
-      stack_push_array(&s, a);
-      printf("newarray: length: %lld\n", a->length);
-    } break;
-    case op_anewarray: {
-      value val;
-      stack_pop(&s, &val);
-      int count = val.as.int_value;
-
-      u2 index = (code_attr->code[i + 1] << 8) | code_attr->code[i + 2];
-      i += 2;
-
-      cp_info *class_entry = &pool[index - 1];
-      class_info *c_info = (class_info *)class_entry->info;
-
-      cp_info *name_entry = &pool[c_info->name_index - 1];
-      utf8_info *name = (utf8_info *)name_entry->info;
-
-      if (strcmp((char *)name->bytes, string_class_name) == 0) {
-        array *a = array_new(count);
-        stack_push_array(&s, a);
-        printf("anewarray: with length: %lld\n", a->length);
-      } else {
-        perror("unknown class type");
-        return -1;
-      }
-    } break;
-    case op_ldc: {
-      u1 index = code_attr->code[++i];
-      cp_info *pool_entry = &pool[index - 1];
-      switch (pool_entry->tag) {
-      case CONSTANT_Integer: {
-        integer_info *i_info = (integer_info *)pool_entry->info;
-        stack_push_int(&s, (int)i_info->bytes);
-      } break;
-      case CONSTANT_Float: {
-        float_info *f_info = (float_info *)pool_entry->info;
-        stack_push_float(&s, convert_float(f_info->bytes));
-      } break;
-      case CONSTANT_String: {
-        string_info *s_info = (string_info *)pool_entry->info;
-        utf8_info *utf8 = (utf8_info *)pool[s_info->string_index - 1].info;
-        stack_push_string(&s, (char *)utf8->bytes);
-      } break;
-      default:
-        printf("unknown ldc type: %d\n", pool_entry->tag);
-        return -1;
-      }
-    } break;
-    case op_ldc2_w: {
-      u2 index = (code_attr->code[i + 1] << 8) | code_attr->code[i + 2];
-      i += 2;
-
-      cp_info *pool_entry = &pool[index - 1];
-      printf("ldc2_w index: %d, tag: %d\n", index, pool_entry->tag);
-      switch (pool_entry->tag) {
-      case CONSTANT_Double: {
-        double_info *d_info = (double_info *)pool_entry->info;
-        printf("double tag: %d\n", d_info->tag);
-        printf("high bytes: %x, low bytes: %x\n", d_info->high_bytes,
-               d_info->low_bytes);
-
-        double d = convert_double(d_info->high_bytes, d_info->low_bytes);
-        stack_push_double(&s, d);
-      } break;
-      default:
-        printf("unknown ldc2_w type: %d\n", pool_entry->tag);
-        return -1;
-      }
-    } break;
-    case op_dastore: {
-      value val;
-      stack_pop(&s, &val);
-
-      value index_val;
-      stack_pop(&s, &index_val);
-
-      value array_val;
-      stack_pop(&s, &array_val);
-
-      array_val.as.array_value->elements[index_val.as.int_value] = val;
-      printf("dastore: %f\n", val.as.double_value);
-    } break;
-    case op_aastore: {
-      value val;
-      stack_pop(&s, &val);
-
-      value index_val;
-      stack_pop(&s, &index_val);
-
-      value array_val;
-      stack_pop(&s, &array_val);
-
-      array_val.as.array_value->elements[index_val.as.int_value] = val;
-      printf("aastore\n");
-    } break;
-    case op_dup: {
-      value val;
-      stack_peek(&s, &val);
-      stack_push(&s, val);
-    } break;
-    case op_invokestatic: {
-      u2 index = (code_attr->code[i + 1] << 8) | code_attr->code[i + 2];
-      i += 2;
-
-      utf8_info *name = (utf8_info *)pool[index - 1].info;
-      printf("invokestatic: %s\n", name->bytes);
-    } break;
-    case op_putstatic: {
-      u2 index = (code_attr->code[i + 1] << 8) | code_attr->code[i + 2];
-      i += 2;
-
-      utf8_info *name =
-          find_in_ref_info(pool, (ref_info *)pool[index - 1].info);
-
-      value val;
-      stack_pop(&s, &val);
-
-      char *key = (char *)name->bytes;
-      if (!object_set_value(obj, key, val)) {
-        perror("could not set value");
-        return false;
-      }
-
-      printf("putstatic: %s\n", name->bytes);
-    } break;
-
-    case op_return: {
-      printf("return\n");
-      return true;
-    } break;
-
-    default:
-      printf("unknown opcode: %x\n", opcode);
+  while (state.pc < state.code_length) {
+    u1 opcode = state.code[state.pc];
+    if (instructions[opcode] == NULL) {
+      printf("unknown opcode: %d\n", opcode);
       return false;
     }
+
+    instruction_state i_state = instructions[opcode](&state);
+    if (i_state == instruction_state_error) {
+      return false;
+    }
+
+    if (i_state == instruction_state_return) {
+      break;
+    }
+
+    state.pc++;
   }
 
   return true;

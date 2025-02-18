@@ -30,7 +30,6 @@ void value_to_json(FILE *file, value val) {
 }
 
 void array_to_json(FILE *file, array *arr) {
-  printf("length: %lld\n", arr->length);
   fprintf(file, "[");
   for (size_t i = 0; i < arr->length; i++) {
     value_to_json(file, arr->elements[i]);

@@ -5,8 +5,6 @@
 #include "stack.h"
 
 typedef enum opcode {
-  op_nop = 0x0,
-  op_aconst_null = 0x1,
   op_iconst_m1 = 0x2,
   op_iconst_0 = 0x3,
   op_iconst_1 = 0x4,
@@ -21,14 +19,12 @@ typedef enum opcode {
   op_dconst_1 = 0xf,
   op_sipush = 0x11,
   op_ldc = 0x12,
-  op_ldc_w = 0x13,
   op_ldc2_w = 0x14,
   op_dastore = 0x52,
   op_aastore = 0x53,
   op_dup = 0x59,
   op_return = 0xb1,
   op_putstatic = 0xb3,
-  op_invokestatic = 0xb8,
   op_newarray = 0xbc,
   op_anewarray = 0xbd,
 } opcode;
@@ -57,5 +53,22 @@ double convert_double(u4 high_bytes, u4 low_bytes);
 utf8_info *find_in_ref_info(cp_info *pool, ref_info *ref);
 code_attribute *find_code_attribute(method_info *method, cp_info *pool);
 method_info *find_clinit(class_file *c_file);
+
+typedef enum instruction_state {
+  instruction_state_continue,
+  instruction_state_return,
+  instruction_state_error,
+} instruction_state;
+
+typedef struct interpreter_state {
+  u1 *code;
+  u4 pc;
+  stack s;
+  object *obj;
+  cp_info *pool;
+  u4 code_length;
+} interpreter_state;
+
+typedef instruction_state (*instruction)(interpreter_state *state);
 
 bool interpret_code(code_attribute *code_attr, object *obj, cp_info *pool);
