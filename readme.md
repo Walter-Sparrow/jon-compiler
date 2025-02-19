@@ -6,24 +6,22 @@ JON (Java Object Notation) is a silly and experimental project that allows Java 
 
 - Uses Java classes as configuration files.
 - Serializes `static` fields into JSON format.
-- Supports nested serialization with `@JsonSerializable` annotation.
-- Handles primitive types, lists, and nested objects.
+- Handles primitive types, arrays, and nested objects.
 - **Not production-ready** – Just for fun and educational purposes!
 
 ## Example Usage
 
-Define a Java class with annotated fields:
+Define a Java class with static fields:
 
 ```java
-@JsonSerializable
 public class Database {
+    public static int port = 65537;
+    public static boolean enabled = true;
     public static String name = "example";
     public static String version = "1.0";
-    public static int port = 3306;
-    public static List<String> hosts = List.of("localhost", "127.0.0.1");
-    public static List<Double> weights = List.of(1.0, 2.0, 3.0);
-
-    @JsonSerializable
+    public static float weight = 69.1f;
+    public static double[] sizes = { 1.0, 2.0, 3.0 };
+    public static String[] hosts = { "localhost", "127.0.0.1" };
     public static Connection connection;
 }
 ```
@@ -32,11 +30,13 @@ Generated JSON output:
 
 ```json
 {
+  "port": 65537,
+  "enabled": 1,
   "name": "example",
   "version": "1.0",
-  "port": 3306,
+  "weight": 69.1,
+  "sizes": [1.0, 2.0, 3.0],
   "hosts": ["localhost", "127.0.0.1"],
-  "weights": [1.0, 2.0, 3.0],
   "connection": {
     "name": "mysql",
     "address": {
@@ -52,10 +52,6 @@ Generated JSON output:
 - Does **not** support non-static fields.
 - Does **not** handle complex object graphs efficiently.
 - **No validation or error handling** – it's just a fun experiment!
-
-## Installation & Usage
-
-JON is not packaged as a library, but you can include the `@JsonSerializable` annotation and the serializer logic in your project.
 
 ## License
 
