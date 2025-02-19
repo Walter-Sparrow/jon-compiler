@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 typedef uint8_t u1;
 typedef uint16_t u2;
@@ -101,7 +102,7 @@ void read_integer_info(FILE *file, integer_info *info);
 void read_float_info(FILE *file, float_info *info);
 void read_long_info(FILE *file, long_info *info);
 void read_double_info(FILE *file, double_info *info);
-int read_constant_pool(FILE *file, cp_info *pool, u2 count);
+bool read_constant_pool(FILE *file, cp_info *pool, u2 count);
 
 typedef enum class_access_flags {
   CLASS_ACC_PUBLIC = 0x0001,
@@ -208,8 +209,8 @@ typedef struct source_file_attribute {
 
 void print_all_class_access_flags(u2 access_flags);
 
-int read_attributes(FILE *file, attribute_info *attributes, u2 count,
-                    cp_info *pool);
+bool read_attributes(FILE *file, attribute_info *attributes, u2 count,
+                     cp_info *pool);
 
 void read_signature_attribute(FILE *file, signature_attribute *info,
                               cp_info *pool);
@@ -219,14 +220,14 @@ void read_annotation(FILE *file, annotation *info, cp_info *pool);
 void read_runtime_visible_annotations_attribute(
     FILE *file, runtime_visible_annotations_attribute *info, cp_info *pool);
 void read_exception_table(FILE *file, exception_table *table);
-int read_code_attribute(FILE *file, code_attribute *info, cp_info *pool);
+bool read_code_attribute(FILE *file, code_attribute *info, cp_info *pool);
 void read_line_number_table(FILE *file, line_number_table *table);
-int read_line_number_table_attribute(FILE *file,
-                                     line_number_table_attribute *info);
+bool read_line_number_table_attribute(FILE *file,
+                                      line_number_table_attribute *info);
 void read_source_file_attribute(FILE *file, source_file_attribute *info,
                                 cp_info *pool);
-int read_attributes(FILE *file, attribute_info *attributes, u2 count,
-                    cp_info *pool);
+bool read_attributes(FILE *file, attribute_info *attributes, u2 count,
+                     cp_info *pool);
 
 typedef enum field_access_flags {
   FIELD_ACC_PUBLIC = 0x0001,
@@ -250,7 +251,7 @@ typedef struct field_info {
 
 void print_all_field_access_flags(u2 access_flags);
 
-int parse_fields(FILE *file, field_info *fields, u2 count, cp_info *pool);
+bool parse_fields(FILE *file, field_info *fields, u2 count, cp_info *pool);
 
 typedef enum method_access_flags {
   METHOD_ACC_PUBLIC = 0x0001,
@@ -276,7 +277,7 @@ typedef struct method_info {
 } method_info;
 
 void print_all_method_access_flags(u2 access_flags);
-int read_methods(FILE *file, method_info *methods, u2 count, cp_info *pool);
+bool read_methods(FILE *file, method_info *methods, u2 count, cp_info *pool);
 
 typedef struct class_file {
   u4 magic;
@@ -297,4 +298,4 @@ typedef struct class_file {
   attribute_info *attributes;
 } class_file;
 
-int parse_file(char *path, class_file *c_file);
+bool parse_file(char *path, class_file *c_file);

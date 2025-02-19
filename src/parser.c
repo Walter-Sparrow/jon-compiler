@@ -45,7 +45,7 @@ void read_double_info(FILE *file, double_info *info) {
   READ_U4(file, info->low_bytes);
 }
 
-int read_constant_pool(FILE *file, cp_info *pool, u2 count) {
+bool read_constant_pool(FILE *file, cp_info *pool, u2 count) {
   for (int i = 1; i < count; i++) {
     cp_info *pool_entry = &pool[i - 1];
     READ_U1(file, pool_entry->tag);
@@ -137,11 +137,11 @@ int read_constant_pool(FILE *file, cp_info *pool, u2 count) {
 
     default:
       printf("unknown tag: %d\n", pool_entry->tag);
-      return -1;
+      return false;
     }
   }
 
-  return 0;
+  return true;
 }
 
 void print_all_class_access_flags(u2 access_flags) {
@@ -171,8 +171,8 @@ void print_all_class_access_flags(u2 access_flags) {
   }
 }
 
-int read_attributes(FILE *file, attribute_info *attributes, u2 count,
-                    cp_info *pool);
+bool read_attributes(FILE *file, attribute_info *attributes, u2 count,
+                     cp_info *pool);
 
 void read_signature_attribute(FILE *file, signature_attribute *info,
                               cp_info *pool) {
@@ -224,7 +224,7 @@ void read_exception_table(FILE *file, exception_table *table) {
   READ_U2(file, table->catch_type);
 }
 
-int read_code_attribute(FILE *file, code_attribute *info, cp_info *pool) {
+bool read_code_attribute(FILE *file, code_attribute *info, cp_info *pool) {
   READ_U2(file, info->max_stack);
   printf("      max stack: %d\n", info->max_stack);
 
@@ -256,13 +256,12 @@ int read_code_attribute(FILE *file, code_attribute *info, cp_info *pool) {
 
   info->attributes =
       (attribute_info *)malloc(info->attributes_count * sizeof(attribute_info));
-  if (read_attributes(file, info->attributes, info->attributes_count, pool) <
-      0) {
+  if (!read_attributes(file, info->attributes, info->attributes_count, pool)) {
     perror("could not read attributes");
-    return -1;
+    return false;
   }
 
-  return 0;
+  return true;
 }
 
 void read_line_number_table(FILE *file, line_number_table *table) {
@@ -270,8 +269,8 @@ void read_line_number_table(FILE *file, line_number_table *table) {
   READ_U2(file, table->line_number);
 }
 
-int read_line_number_table_attribute(FILE *file,
-                                     line_number_table_attribute *info) {
+bool read_line_number_table_attribute(FILE *file,
+                                      line_number_table_attribute *info) {
   READ_U2(file, info->line_number_table_length);
   printf("      line number table length: %d\n",
          info->line_number_table_length);
@@ -285,7 +284,7 @@ int read_line_number_table_attribute(FILE *file,
            info->line_number_table[i].line_number);
   }
 
-  return 0;
+  return true;
 }
 
 void read_source_file_attribute(FILE *file, source_file_attribute *info,
@@ -295,8 +294,8 @@ void read_source_file_attribute(FILE *file, source_file_attribute *info,
   printf("      source file: %s\n", utf8->bytes);
 }
 
-int read_attributes(FILE *file, attribute_info *attributes, u2 count,
-                    cp_info *pool) {
+bool read_attributes(FILE *file, attribute_info *attributes, u2 count,
+                     cp_info *pool) {
   for (int i = 0; i < count; i++) {
     attribute_info *current_info = &attributes[i];
     printf("  attribute_index: %d\n", i);
@@ -334,7 +333,7 @@ int read_attributes(FILE *file, attribute_info *attributes, u2 count,
       code_attribute *code = (code_attribute *)malloc(sizeof(code_attribute));
       code->attribute_name_index = current_info->attribute_name_index;
       code->attribute_length = current_info->attribute_length;
-      if (read_code_attribute(file, code, pool) < 0) {
+      if (!read_code_attribute(file, code, pool)) {
         perror("could not read code attribute");
         return -1;
       }
@@ -349,9 +348,9 @@ int read_attributes(FILE *file, attribute_info *attributes, u2 count,
       line_number_table->attribute_name_index =
           current_info->attribute_name_index;
       line_number_table->attribute_length = current_info->attribute_length;
-      if (read_line_number_table_attribute(file, line_number_table) < 0) {
+      if (!read_line_number_table_attribute(file, line_number_table)) {
         perror("could not read line number table attribute");
-        return -1;
+        return false;
       }
       current_info->info = (u1 *)line_number_table;
       continue;
@@ -370,7 +369,7 @@ int read_attributes(FILE *file, attribute_info *attributes, u2 count,
     printf("    unknown attribute: %s\n", utf8->bytes);
   }
 
-  return 0;
+  return true;
 }
 
 void print_all_field_access_flags(u2 access_flags) {
@@ -403,7 +402,7 @@ void print_all_field_access_flags(u2 access_flags) {
   }
 }
 
-int parse_fields(FILE *file, field_info *fields, u2 count, cp_info *pool) {
+bool parse_fields(FILE *file, field_info *fields, u2 count, cp_info *pool) {
   for (int i = 0; i < count; i++) {
     field_info *field = &fields[i];
     printf("field_index: %d\n", i);
@@ -426,14 +425,14 @@ int parse_fields(FILE *file, field_info *fields, u2 count, cp_info *pool) {
 
     field->attributes = (attribute_info *)malloc(field->attributes_count *
                                                  sizeof(attribute_info));
-    if (read_attributes(file, field->attributes, field->attributes_count,
-                        pool) < 0) {
+    if (!read_attributes(file, field->attributes, field->attributes_count,
+                         pool)) {
       perror("could not read attributes");
-      return -1;
+      return false;
     }
   }
 
-  return 0;
+  return true;
 }
 
 void print_all_method_access_flags(u2 access_flags) {
@@ -475,7 +474,7 @@ void print_all_method_access_flags(u2 access_flags) {
   }
 }
 
-int read_methods(FILE *file, method_info *methods, u2 count, cp_info *pool) {
+bool read_methods(FILE *file, method_info *methods, u2 count, cp_info *pool) {
   for (int i = 0; i < count; i++) {
     method_info *method = &methods[i];
     printf("method_index: %d\n", i);
@@ -499,21 +498,21 @@ int read_methods(FILE *file, method_info *methods, u2 count, cp_info *pool) {
 
     method->attributes = (attribute_info *)malloc(method->attributes_count *
                                                   sizeof(attribute_info));
-    if (read_attributes(file, method->attributes, method->attributes_count,
-                        pool) < 0) {
+    if (!read_attributes(file, method->attributes, method->attributes_count,
+                         pool)) {
       perror("could not read attributes");
-      return -1;
+      return false;
     }
   }
 
-  return 0;
+  return true;
 }
 
-int parse_file(char *path, class_file *c_file) {
+bool parse_file(char *path, class_file *c_file) {
   FILE *file = fopen(path, "rb");
   if (!file) {
     perror("could not open the file");
-    return -1;
+    return false;
   }
 
   u4 magic;
@@ -521,7 +520,7 @@ int parse_file(char *path, class_file *c_file) {
   printf("magic: %x\n", magic);
   if (magic != 0xcafebabe) {
     perror("invalid magic");
-    return -1;
+    return false;
   }
 
   u2 minor_version, major_version;
@@ -535,9 +534,9 @@ int parse_file(char *path, class_file *c_file) {
 
   cp_info *constant_pool =
       (cp_info *)malloc((constant_pool_count - 1) * sizeof(cp_info));
-  if (read_constant_pool(file, constant_pool, constant_pool_count) < 0) {
+  if (!read_constant_pool(file, constant_pool, constant_pool_count)) {
     perror("could not read constant pool");
-    return -1;
+    return false;
   }
 
   u2 access_flags;
@@ -575,9 +574,9 @@ int parse_file(char *path, class_file *c_file) {
   printf("fields count: %d\n", fields_count);
 
   field_info *fields = (field_info *)malloc(fields_count * sizeof(field_info));
-  if (parse_fields(file, fields, fields_count, constant_pool) < 0) {
+  if (!parse_fields(file, fields, fields_count, constant_pool)) {
     perror("could not read fields");
-    return -1;
+    return false;
   }
 
   u2 methods_count;
@@ -586,9 +585,9 @@ int parse_file(char *path, class_file *c_file) {
 
   method_info *methods =
       (method_info *)malloc(methods_count * sizeof(method_info));
-  if (read_methods(file, methods, methods_count, constant_pool) < 0) {
+  if (!read_methods(file, methods, methods_count, constant_pool)) {
     perror("could not read methods");
-    return -1;
+    return false;
   }
 
   u2 attributes_count;
@@ -597,9 +596,9 @@ int parse_file(char *path, class_file *c_file) {
 
   attribute_info *attributes =
       (attribute_info *)malloc(attributes_count * sizeof(attribute_info));
-  if (read_attributes(file, attributes, attributes_count, constant_pool) < 0) {
+  if (!read_attributes(file, attributes, attributes_count, constant_pool)) {
     perror("could not read attributes");
-    return -1;
+    return false;
   }
 
   c_file->magic = magic;
@@ -619,5 +618,5 @@ int parse_file(char *path, class_file *c_file) {
   c_file->attributes_count = attributes_count;
   c_file->attributes = attributes;
 
-  return 0;
+  return true;
 }
