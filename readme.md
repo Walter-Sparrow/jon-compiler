@@ -1,6 +1,6 @@
 # JON - Java Object Notation
 
-JON (Java Object Notation) is a silly and experimental project that allows Java classes to act as configuration files, automatically serializing annotated static fields into JSON.
+JON (Java Object Notation) is a silly and experimental project that allows Java classes to act as configuration files, automatically serializing static fields into JSON.
 
 ## Features
 
